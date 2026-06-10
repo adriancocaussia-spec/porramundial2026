@@ -37,6 +37,17 @@
     .player-btn { padding:5px 13px; border-radius:20px; border:2px solid var(--border); background:white; cursor:pointer; font-size:.82rem; font-weight:600; color:var(--text); transition:all .18s; }
     .player-btn:hover { border-color:var(--green); color:var(--green); }
     .player-btn.active { background:var(--green); color:white; border-color:var(--green); }
+    .player-btn.free { border-style:dashed; color:var(--muted); }
+    .player-btn.free:hover { border-color:var(--green); color:var(--green); }
+
+    /* MODAL */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px; }
+    .modal-box { background:white; border-radius:14px; padding:20px; max-width:340px; width:100%; box-shadow:0 10px 40px rgba(0,0,0,.3); }
+    .modal-box h3 { margin-bottom:6px; }
+    .modal-box p { font-size:.82rem; color:var(--muted); margin-bottom:14px; line-height:1.4; }
+    .modal-box input { width:100%; padding:10px 12px; border:2px solid var(--border); border-radius:8px; font-size:.95rem; margin-bottom:10px; }
+    .modal-box input:focus { outline:none; border-color:var(--green); }
+    .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
 
     /* NAV */
     nav { background:white; border-bottom:2px solid var(--border); display:flex; overflow-x:auto; -webkit-overflow-scrolling:touch; }
@@ -145,7 +156,7 @@
     .rule-item strong { color:var(--green); display:block; margin-bottom:2px; }
 
     /* UTILS */
-    .btn { display:inline-block; padding:10px 22px; border-radius:8px; border:none; cursor:pointer; font-size:.9rem; font-weight:700; transition:all .15s; }
+    .btn { display:inline-block; padding:10px 22px; border-radius:8px; border:none; cursor:pointer; font-size:.9rem; font-weight:700; transition:all .15s; background:var(--border); color:var(--text); }
     .btn-green { background:var(--green); color:white; }
     .btn-green:hover { background:#0f2b17; }
     .btn-orange { background:#f97316; color:white; }
@@ -171,6 +182,7 @@
 
 <div id="app" style="display:none"></div>
 <div class="toast" id="toast"></div>
+<div id="modal-root"></div>
 
 <script>
 // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
@@ -429,6 +441,9 @@ let connected = false;
 let initialLoad = false;
 // Players unlocked with password on this device
 let unlocked = JSON.parse(localStorage.getItem('porra_unlocked')||'[]');
+// "My" player on this device — shown first and pre-selected
+let myPlayer = localStorage.getItem('porra_myplayer');
+myPlayer = myPlayer !== null ? parseInt(myPlayer,10) : null;
 
 // ─── FIREBASE SYNC ────────────────────────────────────────────────────────────
 // Connection state
@@ -458,6 +473,8 @@ db.ref(ROOT).on('value', snap => {
   if (!initialLoad) {
     initialLoad = true;
     if (!S.setupDone) curTab = 'setup_tab';
+    // Pre-select "my" player on this device, if remembered
+    if (myPlayer !== null && myPlayer >= 0 && myPlayer < S.players.length) curPlayer = myPlayer;
     // Auto-sync results immediately on first load, then every 5 min
     autoSyncFromESPN();
     setInterval(autoSyncFromESPN, 5 * 60 * 1000);
@@ -566,13 +583,16 @@ function renderHeader() {
 
 // ─── SETUP ────────────────────────────────────────────────────────────────────
 function renderSetup() {
+  // First-ever load: simple "create & join" form for the first player
+  if (!S.setupDone) return renderInitialJoin();
+  // Admin re-edit: full grid for all players (fallback / fixes)
   const players = S.players || defaultState().players;
   const passwords = S.passwords || {};
-  return `<header><div><h1>⚽ Porra Mundial 2026</h1><p>Configuración inicial</p></div></header>
+  return `<header><div><h1>⚽ Porra Mundial 2026</h1><p>Editar jugadores (admin)</p></div></header>
   <div class="container" style="padding-top:20px">
     <div class="card">
-      <h2 style="margin-bottom:4px">¡Bienvenidos!</h2>
-      <p style="color:var(--muted);font-size:.88rem;margin-bottom:16px">Introduce el nombre y una contraseña para cada uno de los ${NUM_PLAYERS} jugadores. La contraseña evita que otros cambien tus apuestas.</p>
+      <h2 style="margin-bottom:4px">Editar jugadores</h2>
+      <p style="color:var(--muted);font-size:.88rem;margin-bottom:16px">Solo para arreglos puntuales. Normalmente cada jugador se une pulsando su "Jugador N" libre en la barra superior y poniendo su nombre y contraseña.</p>
       <div class="setup-grid">
         ${players.map((p,i)=>`<div class="field-group">
           <label>Jugador ${i+1}</label>
@@ -581,15 +601,53 @@ function renderSetup() {
         </div>`).join('')}
       </div>
       <div style="text-align:center;margin-top:16px">
-        <button class="btn btn-green" onclick="saveSetup()">🚀 Empezar la Porra</button>
+        <button class="btn btn-green" onclick="saveSetup()">💾 Guardar cambios</button>
+        <button class="btn" onclick="curTab='quiniela';render()">Cancelar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// First-ever load: the first person creates the porra and joins as Jugador 1
+function renderInitialJoin() {
+  return `<header><div><h1>⚽ Porra Mundial 2026</h1><p>Configuración inicial</p></div></header>
+  <div class="container" style="padding-top:20px">
+    <div class="card">
+      <h2 style="margin-bottom:4px">¡Bienvenido! 👋</h2>
+      <p style="color:var(--muted);font-size:.88rem;margin-bottom:16px">Eres el primero en entrar. Crea la porra para los ${NUM_PLAYERS} jugadores y únete con tu nombre.</p>
+      <div class="field-group" style="margin-bottom:10px">
+        <label>Tu nombre</label>
+        <input id="firstName" placeholder="Tu nombre..."/>
+      </div>
+      <div class="field-group">
+        <label>Tu contraseña (opcional)</label>
+        <input id="firstPwd" placeholder="Contraseña..."/>
+      </div>
+      <div style="text-align:center;margin-top:16px">
+        <button class="btn btn-green" onclick="createAndJoin()">🚀 Crear la porra y unirme</button>
       </div>
     </div>
     <div class="card" style="font-size:.84rem;color:var(--muted);line-height:1.6">
       <strong style="color:var(--text)">🏆 Premio:</strong> Cada jugador pone 20€ (15 × 20€ = 300€) → el ganador se lleva el bote completo<br>
       <strong style="color:var(--text)">⭐ Tip:</strong> Elige el ganador (obligatorio) y añade el marcador exacto para doblar los puntos si aciertas.<br>
-      <strong style="color:var(--text)">🔒 Contraseña:</strong> Cada jugador necesita su contraseña para apostar desde su nombre. Déjala en blanco si no quieres protegerlo.
+      <strong style="color:var(--text)">👥 Cómo se unen los demás:</strong> Pulsando sobre un "Jugador N" libre (➕) en la barra superior, ponen su nombre y contraseña, y queda asignado para siempre.
     </div>
   </div>`;
+}
+function createAndJoin() {
+  const name = document.getElementById('firstName')?.value.trim();
+  if (!name) { toast('Escribe tu nombre'); return; }
+  const pwd = document.getElementById('firstPwd')?.value.trim();
+  S.players[0] = name;
+  if (pwd) S.passwords[0] = pwd;
+  S.setupDone = true;
+  saveState();
+  unlocked = [0];
+  localStorage.setItem('porra_unlocked', JSON.stringify(unlocked));
+  rememberMyPlayer(0);
+  curPlayer = 0;
+  curTab = 'quiniela';
+  toast('¡Porra creada! Bienvenido ✓');
 }
 function saveSetup() {
   S.players = Array.from({length:NUM_PLAYERS},(_,i)=>document.getElementById(`p${i}`)?.value.trim()||`Jugador ${i+1}`);
@@ -599,15 +657,27 @@ function saveSetup() {
     if (v) passwords[i]=v;
   }
   S.passwords = passwords;
-  S.setupDone = true;
-  saveState(); curTab='quiniela'; toast('¡Porra creada! 🎉');
+  saveState(); curTab='quiniela'; toast('Cambios guardados ✓');
 }
 
 // ─── PLAYER BAR ───────────────────────────────────────────────────────────────
+function isClaimed(i) {
+  const def = `Jugador ${i+1}`;
+  return (S.players[i] !== def) || !!(S.passwords && S.passwords[i]);
+}
 function renderPlayerBar() {
+  // Show "my" remembered player first, then the rest in their original order
+  let order = S.players.map((_,i)=>i);
+  if (myPlayer !== null && myPlayer >= 0 && myPlayer < S.players.length) {
+    order = [myPlayer, ...order.filter(i=>i!==myPlayer)];
+  }
   return `<div class="player-bar">
     <label>👤 Soy:</label>
-    ${S.players.map((p,i)=>`<button class="player-btn${i===curPlayer?' active':''}" onclick="selPlayer(${i})">${unlocked.includes(i)?'':'🔒 '}${p}</button>`).join('')}
+    ${order.map(i=>{
+      const claimed = isClaimed(i);
+      const label = claimed ? `${unlocked.includes(i)?'':'🔒 '}${S.players[i]}` : `➕ ${S.players[i]}`;
+      return `<button class="player-btn${i===curPlayer?' active':''}${claimed?'':' free'}" onclick="selPlayer(${i})">${label}</button>`;
+    }).join('')}
   </div>`;
 }
 
@@ -793,7 +863,6 @@ function renderAdmin() {
     <p style="color:var(--muted);font-size:.85rem;margin-bottom:16px">Solo para el organizador</p>
     <input type="password" id="pin" placeholder="PIN…" style="width:130px;padding:10px;border:2px solid var(--border);border-radius:8px;text-align:center;font-size:1.3rem;margin-bottom:12px"/><br>
     <button class="btn btn-green" onclick="checkPin()">Entrar</button>
-    <p style="color:var(--muted);font-size:.75rem;margin-top:12px">Pista: año del Mundial</p>
   </div>`;
 
   const played = GROUP_MATCHES.filter(m=>isLocked(m));
@@ -852,20 +921,26 @@ function renderReglas() {
     <p style="font-size:.88rem;line-height:1.6">⚠️ Las apuestas se cierran el día del partido. Puedes ver las apuestas de los demás una vez cerrado.</p>
     <hr class="divider">
     <h4 style="margin-bottom:8px">🏆 Premio</h4>
-    <p style="font-size:.88rem;line-height:1.6">El jugador con más puntos al final gana <strong>300€</strong> (50€ de cada uno de los otros 5). Final: <strong>19 julio 2026</strong>, MetLife Stadium.</p>
+    <p style="font-size:.88rem;line-height:1.6">El jugador con más puntos al final gana <strong>300€</strong> (15 jugadores × 20€, bote completo). Final: <strong>19 julio 2026</strong>, MetLife Stadium.</p>
     <hr class="divider">
     <p style="font-size:.77rem;color:var(--muted);text-align:center">Grupos: 11–27 jun · R32: 28 jun–3 jul · Octavos: 4–7 jul · Cuartos: 9–11 jul · Semis: 14–15 jul · Final: 19 jul</p>
   </div>`;
 }
 
 // ─── ACCIONES ─────────────────────────────────────────────────────────────────
+function rememberMyPlayer(i) {
+  myPlayer = i;
+  localStorage.setItem('porra_myplayer', String(i));
+}
 function selPlayer(i) {
-  if (unlocked.includes(i)) { curPlayer=i; render(); return; }
+  if (!isClaimed(i)) { openClaimModal(i); return; }
+  if (unlocked.includes(i)) { curPlayer=i; rememberMyPlayer(i); render(); return; }
   const pwd = (S.passwords && S.passwords[i]) || '';
   if (!pwd) {
     // No password set for this player — allow direct access
     curPlayer=i; unlocked.push(i);
     localStorage.setItem('porra_unlocked', JSON.stringify(unlocked));
+    rememberMyPlayer(i);
     render();
     return;
   }
@@ -874,12 +949,52 @@ function selPlayer(i) {
   if (input === pwd) {
     curPlayer=i; unlocked.push(i);
     localStorage.setItem('porra_unlocked', JSON.stringify(unlocked));
+    rememberMyPlayer(i);
     render();
     toast(`Bienvenido, ${S.players[i]} ✓`);
   } else {
     toast('Contraseña incorrecta ❌');
   }
 }
+
+// ─── MODAL: UNIRSE A UN HUECO LIBRE ───────────────────────────────────────────
+function openClaimModal(i) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box">
+        <h3>👤 Unirte como ${S.players[i]}</h3>
+        <p>Pon tu nombre y, si quieres, una contraseña para que nadie más pueda cambiar tus apuestas.</p>
+        <input id="claimName" placeholder="Tu nombre..."/>
+        <input id="claimPwd" placeholder="Contraseña (opcional)..."/>
+        <div class="modal-actions">
+          <button class="btn" onclick="closeModal()">Cancelar</button>
+          <button class="btn btn-green" onclick="submitClaim(${i})">Unirme</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('claimName')?.focus();
+}
+function closeModal() {
+  const root = document.getElementById('modal-root');
+  if (root) root.innerHTML = '';
+}
+function submitClaim(i) {
+  const name = document.getElementById('claimName')?.value.trim();
+  if (!name) { toast('Escribe tu nombre'); return; }
+  const pwd = document.getElementById('claimPwd')?.value.trim();
+  S.players[i] = name;
+  savePath(`players/${i}`, name);
+  if (pwd) { S.passwords[i] = pwd; savePath(`passwords/${i}`, pwd); }
+  unlocked.push(i);
+  localStorage.setItem('porra_unlocked', JSON.stringify(unlocked));
+  rememberMyPlayer(i);
+  curPlayer = i;
+  closeModal();
+  render();
+  toast(`¡Bienvenido, ${name}! ✓`);
+}
+
 function setTab(t) { curTab=t; render(); }
 function setFilter(f) { curFilter=f; render(); }
 
