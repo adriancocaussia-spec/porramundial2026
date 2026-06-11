@@ -333,8 +333,11 @@ const KICKOFFS = {
 };
 
 // ─── ESPN AUTO-SYNC ───────────────────────────────────────────────────────────
-// Reverse lookup: UTC timestamp → match ID
-const KICKOFFS_REV = Object.fromEntries(Object.entries(KICKOFFS).map(([k,v]) => [v, k]));
+// Reverse lookup: UTC timestamp (ms) → match ID. Se compara por valor de fecha,
+// no por string, porque ESPN devuelve "2026-06-11T19:00Z" sin segundos mientras
+// que KICKOFFS usa "2026-06-11T19:00:00Z".
+const KICKOFFS_REV = {};
+Object.entries(KICKOFFS).forEach(([k,v]) => { KICKOFFS_REV[new Date(v).getTime()] = k; });
 
 const TEAM_NAMES = {
   'Mexico':'🇲🇽 México','South Africa':'🇿🇦 Sudáfrica','South Korea':'🇰🇷 Corea del Sur',
@@ -394,8 +397,8 @@ async function autoSyncFromESPN() {
         const slug = event.season?.slug || '';
 
         if (slug === 'group-stage') {
-          // Match by exact UTC kickoff timestamp
-          const matchId = KICKOFFS_REV[event.date];
+          // Match by UTC kickoff timestamp (parsed, not string-compared)
+          const matchId = KICKOFFS_REV[new Date(event.date).getTime()];
           if (matchId && !(S.results && S.results[matchId])) {
             savePath(`results/${matchId}`, { home: homeScore, away: awayScore });
             console.log(`[AutoSync] ${matchId}: ${homeScore}-${awayScore}`);
@@ -562,18 +565,19 @@ function hasPred(matchId, pi) {
 function winner(h,a) { return h>a?'home':a>h?'away':'draw'; }
 function calcPts(pred, result, phase) {
   if (!pred || !result) return null;
-  const base = phase === 'group' ? 10 : 20;
+  const base = phase === 'group' ? 10 : 20;   // puntos por acertar ganador
+  const bonus = phase === 'group' ? 20 : 40;  // puntos EXTRA por acertar también el resultado exacto
   const w = winner(result.home, result.away);
   // Backward compat: old exact-only mode (no pick)
   if (!pred.pick && pred.mode === 'exact') {
-    return (Number(pred.scoreHome) === result.home && Number(pred.scoreAway) === result.away) ? base*2 : 0;
+    return (Number(pred.scoreHome) === result.home && Number(pred.scoreAway) === result.away) ? base + bonus : 0;
   }
   if (!pred.pick) return null;
   if (pred.pick !== w) return 0;
   // Winner correct — check if exact score bonus applies
   const hasScore = pred.scoreHome !== null && pred.scoreHome !== undefined &&
                    pred.scoreAway !== null && pred.scoreAway !== undefined;
-  if (hasScore && Number(pred.scoreHome) === result.home && Number(pred.scoreAway) === result.away) return base * 2;
+  if (hasScore && Number(pred.scoreHome) === result.home && Number(pred.scoreAway) === result.away) return base + bonus;
   return base;
 }
 function totalPts(pi) {
@@ -673,7 +677,7 @@ function renderInitialJoin() {
     </div>
     <div class="card" style="font-size:.84rem;color:var(--muted);line-height:1.6">
       <strong style="color:var(--text)">🏆 Premio:</strong> Cada jugador pone 20€ (19 × 20€ = 380€) → el ganador se lleva el bote completo<br>
-      <strong style="color:var(--text)">⭐ Tip:</strong> Elige el ganador (obligatorio) y añade el marcador exacto para doblar los puntos si aciertas.<br>
+      <strong style="color:var(--text)">⭐ Tip:</strong> Elige el ganador (obligatorio) y añade el marcador exacto para sumar puntos extra si aciertas.<br>
       <strong style="color:var(--text)">👥 Cómo se unen los demás:</strong> Pulsando sobre un "Jugador N" libre (➕) en la barra superior, ponen su nombre y contraseña, y queda asignado para siempre.
     </div>
   </div>`;
@@ -805,7 +809,7 @@ function renderMatchCard(m) {
         <span class="score-dash">–</span>
         <input class="score-in" type="number" min="0" max="20" id="sa_${m.id}" value="${sa}" placeholder="?" onblur="setScore('${m.id}','away',this.value)"/>
         <span class="score-team" style="font-size:.8rem">${m.away}</span>
-        <span style="font-size:.7rem;color:var(--muted);margin-left:6px;white-space:nowrap">⭐ opcional ×2</span>
+        <span style="font-size:.7rem;color:var(--muted);margin-left:6px;white-space:nowrap">⭐ opcional +${pts*2} extra</span>
       </div>`;
   }
   return `<div class="match-card${hp?' has-pred':''}">
@@ -1014,15 +1018,15 @@ function renderReglas() {
     <h4 style="margin-bottom:8px">🎯 Sistema de Puntos</h4>
     <div class="rules-grid">
       <div class="rule-item"><strong>Grupos · Ganador</strong>Aciertas quién gana (o empate): <b>10 puntos</b></div>
-      <div class="rule-item"><strong>Grupos · Exacto ⭐</strong>También aciertas el marcador exacto: <b>20 puntos</b> (en vez de 10). Si el ganador también falla: 0 pts.</div>
+      <div class="rule-item"><strong>Grupos · Exacto ⭐</strong>Si además aciertas el marcador exacto: <b>+20 puntos extra</b> (10 + 20 = 30 en total). Si el ganador falla: 0 pts.</div>
       <div class="rule-item"><strong>Eliminatoria · Ganador</strong>Aciertas el clasificado: <b>20 puntos</b></div>
-      <div class="rule-item"><strong>Eliminatoria · Exacto ⭐</strong>También aciertas el marcador exacto (90'): <b>40 puntos</b>. Si el ganador falla: 0 pts.</div>
+      <div class="rule-item"><strong>Eliminatoria · Exacto ⭐</strong>Si además aciertas el marcador exacto (90'): <b>+40 puntos extra</b> (20 + 40 = 60 en total). Si el ganador falla: 0 pts.</div>
     </div>
     <hr class="divider">
     <h4 style="margin-bottom:8px">⚡ Cómo funciona</h4>
     <p style="font-size:.88rem;line-height:1.6;margin-bottom:8px">
       <strong>🎯 Ganador</strong> — Elige quién gana o empate. Seguro, predecible.<br>
-      <strong>⭐ Exacto</strong> — Predice el marcador exacto. Si aciertas, <strong>doblas los puntos</strong>. Si fallas, 0.
+      <strong>⭐ Exacto</strong> — Predice además el marcador exacto. Si aciertas, suma <strong>puntos extra</strong> sobre los del ganador. Si fallas el ganador, 0.
     </p>
     <p style="font-size:.88rem;line-height:1.6">⚠️ Las apuestas se cierran el día del partido. Puedes ver las apuestas de los demás una vez cerrado.</p>
     <hr class="divider">
