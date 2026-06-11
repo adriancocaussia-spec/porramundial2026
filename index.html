@@ -64,6 +64,7 @@
     .group-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; padding-bottom:10px; border-bottom:2px solid var(--border); }
     .group-badge { background:var(--green); color:white; width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1rem; flex-shrink:0; }
     .group-badge.ko { background:#7c3aed; }
+    .group-badge.day { background:#f97316; }
     .group-info h3 { font-size:.95rem; font-weight:700; }
     .group-teams { font-size:.75rem; color:var(--muted); margin-top:1px; }
 
@@ -112,6 +113,14 @@
     .player-pred-chip.correct { border-color:#86efac; background:#f0fdf4; color:#15803d; }
     .player-pred-chip.wrong { border-color:#fca5a5; background:#fef2f2; color:#b91c1c; }
     .player-pred-chip.pending { border-color:var(--border); color:var(--muted); }
+
+    /* ESTADÍSTICAS */
+    .stats-block { font-size:.83rem; line-height:1.6; margin-top:6px; padding-top:8px; border-top:1px solid var(--border); }
+    .stats-block p { margin-bottom:4px; }
+    .h2h-fact { background:#fffbeb; border:1px solid #fde68a; border-radius:7px; padding:6px 9px; color:#92400e; margin-top:6px; }
+    .stats-links { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+    .stats-links a { font-size:.74rem; font-weight:700; color:var(--green); border:1.5px solid var(--border); border-radius:14px; padding:3px 10px; text-decoration:none; }
+    .stats-links a:hover { border-color:var(--green); }
 
     /* LEADERBOARD */
     .prize-banner { background:linear-gradient(135deg,var(--green),var(--green2)); color:white; border-radius:12px; padding:18px; text-align:center; margin-bottom:14px; }
@@ -422,7 +431,7 @@ async function autoSyncFromESPN() {
 }
 
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
-const NUM_PLAYERS = 15;
+const NUM_PLAYERS = 19;
 function defaultState() {
   return {
     players: Array.from({length:NUM_PLAYERS},(_,i)=>`Jugador ${i+1}`),
@@ -492,6 +501,39 @@ function updateConnDot() {
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const TODAY = new Date().toISOString().slice(0,10);
+const TOMORROW = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+
+// Datos curiosos / históricos cara a cara (curados a mano, se irán ampliando)
+const MATCH_FACTS = {
+  m1:  '🇲🇽 México y 🇿🇦 Sudáfrica solo se han enfrentado 4 veces (2 victorias mexicanas, 1 sudafricana, 1 empate). Su único duelo mundialista fue Sudáfrica 2010: empate 1-1.',
+  m2:  '🇰🇷 Corea del Sur y 🇨🇿 Chequia se han visto 3 veces, todas amistosos (1 victoria cada una y un empate). Nunca antes habían coincidido en un Mundial: este es su primer cruce oficial.',
+  m7:  '🇨🇦 Canadá y 🇧🇦 Bosnia-Herzegovina nunca se han enfrentado a nivel absoluto. Canadá juega su 3ª Copa del Mundo como anfitrión; Bosnia disputa solo su 2ª, tras 2014.',
+  m8:  '🇶🇦 Qatar y 🇨🇭 Suiza solo tienen un precedente: amistoso de noviembre de 2018 que ganó Qatar 1-0 con gol de Akram Afif. Será su primer cruce oficial.',
+  m19: '🇺🇸 EE.UU. domina el historial ante 🇵🇾 Paraguay con 5 victorias por 2 y 2 empates. Solo coincidieron en un Mundial: 1930, con triunfo estadounidense 3-0 (hat-trick de Bert Patenaude).',
+  m20: '🇦🇺 Australia y 🇹🇷 Turquía solo se han enfrentado 2 veces, ambas amistosos en 2004, con doblete de victorias turcas (3-1 y 1-0). Nunca coincidieron en un Mundial.',
+};
+
+// Forma de un equipo en lo que va de fase de grupos (a partir de los resultados ya sincronizados)
+function teamForm(teamName) {
+  let w=0,d=0,l=0,gf=0,ga=0,played=0;
+  GROUP_MATCHES.forEach(m => {
+    const r = getResult(m.id);
+    if (!r) return;
+    let gfor, gag;
+    if (m.home === teamName) { gfor=r.home; gag=r.away; }
+    else if (m.away === teamName) { gfor=r.away; gag=r.home; }
+    else return;
+    played++; gf+=gfor; ga+=gag;
+    if (gfor>gag) w++; else if (gfor===gag) d++; else l++;
+  });
+  return { played, w, d, l, gf, ga };
+}
+function fmtForm(f) {
+  return f.played === 0 ? 'Debut en el torneo' : `${f.w}V ${f.d}E ${f.l}D · goles ${f.gf}-${f.ga}`;
+}
+function searchQuery(name) {
+  return encodeURIComponent(name.replace(/^[^\p{L}]+/u, '').trim());
+}
 function getKickoffUTC(matchId) { return KICKOFFS[matchId] || null; }
 function isLocked(m) {
   const ko = getKickoffUTC(m.id);
@@ -566,6 +608,8 @@ function render() {
     ${renderNav()}
     <div class="container">${
       curTab==='quiniela' ? renderQuiniela() :
+      curTab==='hoymanana' ? renderHoyManana() :
+      curTab==='stats' ? renderEstadisticas() :
       curTab==='apuestas' ? renderApuestas() :
       curTab==='clasificacion' ? renderClasificacion() :
       curTab==='admin' ? renderAdmin() : renderReglas()
@@ -576,7 +620,7 @@ function render() {
 // ─── HEADER ───────────────────────────────────────────────────────────────────
 function renderHeader() {
   return `<header>
-    <div><h1>⚽ Porra Mundial 2026</h1><p>🏆 300€ para el ganador · 15 jugadores · 20€/persona</p></div>
+    <div><h1>⚽ Porra Mundial 2026</h1><p>🏆 380€ para el ganador · 19 jugadores · 20€/persona</p></div>
     <div id="conn-dot" class="conn-dot${connected?'':' off'}" title="${connected?'Conectado':'Sin conexión'}"></div>
   </header>`;
 }
@@ -628,7 +672,7 @@ function renderInitialJoin() {
       </div>
     </div>
     <div class="card" style="font-size:.84rem;color:var(--muted);line-height:1.6">
-      <strong style="color:var(--text)">🏆 Premio:</strong> Cada jugador pone 20€ (15 × 20€ = 300€) → el ganador se lleva el bote completo<br>
+      <strong style="color:var(--text)">🏆 Premio:</strong> Cada jugador pone 20€ (19 × 20€ = 380€) → el ganador se lleva el bote completo<br>
       <strong style="color:var(--text)">⭐ Tip:</strong> Elige el ganador (obligatorio) y añade el marcador exacto para doblar los puntos si aciertas.<br>
       <strong style="color:var(--text)">👥 Cómo se unen los demás:</strong> Pulsando sobre un "Jugador N" libre (➕) en la barra superior, ponen su nombre y contraseña, y queda asignado para siempre.
     </div>
@@ -683,7 +727,7 @@ function renderPlayerBar() {
 
 // ─── NAV ──────────────────────────────────────────────────────────────────────
 function renderNav() {
-  const tabs=[['quiniela','🎯 Quiniela'],['apuestas','📋 Apuestas'],['clasificacion','🏆 Clasificación'],['admin','⚙️ Admin'],['reglas','ℹ️ Reglas']];
+  const tabs=[['quiniela','🎯 Quiniela'],['hoymanana','🗓️ Hoy/Mañana'],['stats','📊 Stats'],['apuestas','📋 Apuestas'],['clasificacion','🏆 Clasificación'],['admin','⚙️ Admin'],['reglas','ℹ️ Reglas']];
   return `<nav>${tabs.map(([id,l])=>`<button class="${curTab===id?'active':''}" onclick="setTab('${id}')">${l}</button>`).join('')}</nav>`;
 }
 
@@ -833,6 +877,68 @@ function renderApuestas() {
   }).join('');
 }
 
+// ─── HOY / MAÑANA ─────────────────────────────────────────────────────────────
+function renderHoyManana() {
+  const koArr = objToArr(S.knockoutMatches);
+  const allMatches = [...GROUP_MATCHES, ...koArr];
+  const visible = allMatches.filter(m => m.date===TODAY || m.date===TOMORROW);
+  if (visible.length === 0) {
+    return `<div class="card" style="text-align:center;color:var(--muted);padding:24px">No hay partidos programados para hoy ni mañana 🎉</div>`;
+  }
+  visible.sort((a,b) => new Date(getKickoffUTC(a.id)||a.date+'T12:00:00Z') - new Date(getKickoffUTC(b.id)||b.date+'T12:00:00Z'));
+  let html='', lastDate='';
+  visible.forEach(m => {
+    if (m.date !== lastDate) {
+      if (lastDate) html += '</div>';
+      html += `<div class="card" style="margin-bottom:14px">
+        <div class="group-header">
+          <div class="group-badge day">${m.date===TODAY?'HOY':'MAÑ'}</div>
+          <div class="group-info"><h3>${m.date===TODAY?'📅 Hoy':'📅 Mañana'} · ${fmtDate(m.date)}</h3></div>
+        </div>`;
+      lastDate = m.date;
+    }
+    html += renderMatchCard(m);
+  });
+  html += '</div>';
+  return html;
+}
+
+// ─── ESTADÍSTICAS ─────────────────────────────────────────────────────────────
+function renderEstadisticas() {
+  const koArr = objToArr(S.knockoutMatches);
+  const allMatches = [...GROUP_MATCHES, ...koArr];
+  const visible = allMatches.filter(m => m.date===TODAY || m.date===TOMORROW);
+  let html = `<div class="card" style="font-size:.8rem;color:var(--muted);line-height:1.5">
+    📊 Forma de cada selección en lo que va de Mundial (según resultados ya sincronizados) y datos históricos del cara a cara de los partidos de hoy y mañana. Para más detalle, enlaces directos a Sofascore, WhoScored y BeSoccer.
+  </div>`;
+  if (visible.length === 0) {
+    html += `<div class="card" style="text-align:center;color:var(--muted);padding:24px">No hay partidos hoy ni mañana 🎉</div>`;
+    return html;
+  }
+  visible.sort((a,b) => new Date(getKickoffUTC(a.id)||a.date+'T12:00:00Z') - new Date(getKickoffUTC(b.id)||b.date+'T12:00:00Z'));
+  visible.forEach(m => {
+    const fact = MATCH_FACTS[m.id];
+    const fHome = teamForm(m.home), fAway = teamForm(m.away);
+    const qHome = searchQuery(m.home), qAway = searchQuery(m.away);
+    const qMatch = `${qHome}%20vs%20${qAway}`;
+    html += `<div class="card">
+      <div class="match-top"><span class="match-date">📅 ${fmtDate(m.date)}${m.md?' · J'+m.md:m.roundLabel?' · '+m.roundLabel:''} · ${fmtSpainTime(m.id)||'–'}</span></div>
+      <div class="teams-row"><div class="team">${m.home}</div><span class="vs-sep">vs</span><div class="team away">${m.away}</div></div>
+      <div class="stats-block">
+        <p>📈 <strong>${m.home}</strong>: ${fmtForm(fHome)}</p>
+        <p>📈 <strong>${m.away}</strong>: ${fmtForm(fAway)}</p>
+        ${fact ? `<div class="h2h-fact">🆚 ${fact}</div>` : `<p style="color:var(--muted)">🆚 Datos históricos del cara a cara: próximamente</p>`}
+        <div class="stats-links">
+          <a href="https://www.sofascore.com/search?q=${qMatch}" target="_blank" rel="noopener">Sofascore</a>
+          <a href="https://www.whoscored.com/Search/?t=${qMatch}" target="_blank" rel="noopener">WhoScored</a>
+          <a href="https://www.besoccer.com/search?q=${qMatch}" target="_blank" rel="noopener">BeSoccer</a>
+        </div>
+      </div>
+    </div>`;
+  });
+  return html;
+}
+
 // ─── CLASIFICACIÓN ────────────────────────────────────────────────────────────
 function renderClasificacion() {
   const ranked = S.players.map((name,i)=>({name,i,pts:totalPts(i)})).sort((a,b)=>b.pts-a.pts);
@@ -846,7 +952,7 @@ function renderClasificacion() {
   });
   const total = Object.keys(S.results||{}).length;
   return `
-    <div class="prize-banner"><div class="amount">🏆 300€</div><p>Cada jugador pone 20€ · El ganador se lleva el bote completo (300€)</p></div>
+    <div class="prize-banner"><div class="amount">🏆 380€</div><p>Cada jugador pone 20€ · El ganador se lleva el bote completo (380€)</p></div>
     <div class="card">
       <table class="lb-table">
         <thead><tr><th>#</th><th>Jugador</th><th>Aciertos</th><th>Puntos</th></tr></thead>
@@ -921,7 +1027,7 @@ function renderReglas() {
     <p style="font-size:.88rem;line-height:1.6">⚠️ Las apuestas se cierran el día del partido. Puedes ver las apuestas de los demás una vez cerrado.</p>
     <hr class="divider">
     <h4 style="margin-bottom:8px">🏆 Premio</h4>
-    <p style="font-size:.88rem;line-height:1.6">El jugador con más puntos al final gana <strong>300€</strong> (15 jugadores × 20€, bote completo). Final: <strong>19 julio 2026</strong>, MetLife Stadium.</p>
+    <p style="font-size:.88rem;line-height:1.6">El jugador con más puntos al final gana <strong>380€</strong> (19 jugadores × 20€, bote completo). Final: <strong>19 julio 2026</strong>, MetLife Stadium.</p>
     <hr class="divider">
     <p style="font-size:.77rem;color:var(--muted);text-align:center">Grupos: 11–27 jun · R32: 28 jun–3 jul · Octavos: 4–7 jul · Cuartos: 9–11 jul · Semis: 14–15 jul · Final: 19 jul</p>
   </div>`;
