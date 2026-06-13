@@ -47,6 +47,8 @@
     .modal-box p { font-size:.82rem; color:var(--muted); margin-bottom:14px; line-height:1.4; }
     .modal-box input { width:100%; padding:10px 12px; border:2px solid var(--border); border-radius:8px; font-size:.95rem; margin-bottom:10px; }
     .modal-box input:focus { outline:none; border-color:var(--green); }
+    .modal-box select { width:100%; padding:10px 12px; border:2px solid var(--border); border-radius:8px; font-size:.9rem; margin-bottom:10px; background:white; }
+    .modal-box label { font-size:.78rem; color:var(--muted); display:block; margin-bottom:2px; font-weight:700; }
     .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
 
     /* NAV */
@@ -339,6 +341,17 @@ const KICKOFFS = {
 const KICKOFFS_REV = {};
 Object.entries(KICKOFFS).forEach(([k,v]) => { KICKOFFS_REV[new Date(v).getTime()] = k; });
 
+// Fecha (YYYY-MM-DD) en zona horaria de España para un instante dado.
+function spainDateStr(d) {
+  return new Date(d).toLocaleDateString('en-CA', {timeZone:'Europe/Madrid'});
+}
+// Corrige GROUP_MATCHES[].date con el día real en España según KICKOFFS,
+// ya que algunos partidos nocturnos (ej. Qatar-Suiza) caen en el día
+// siguiente en hora española respecto a la jornada MD1/MD2/MD3.
+GROUP_MATCHES.forEach(m => {
+  if (KICKOFFS[m.id]) m.date = spainDateStr(KICKOFFS[m.id]);
+});
+
 const TEAM_NAMES = {
   'Mexico':'🇲🇽 México','South Africa':'🇿🇦 Sudáfrica','South Korea':'🇰🇷 Corea del Sur',
   'Czechia':'🇨🇿 Chequia','Czech Republic':'🇨🇿 Chequia','Canada':'🇨🇦 Canadá',
@@ -412,10 +425,9 @@ async function autoSyncFromESPN() {
             const an = awayC.team?.displayName || '';
             const hd = TEAM_NAMES[hn] || hn;
             const ad = TEAM_NAMES[an] || an;
-            const koDate = new Date(new Date(event.date).getTime() + 2*3600000);
             savePath(`knockoutMatches/${koId}`, {
               id: koId, home: hd, away: ad,
-              date: koDate.toISOString().slice(0,10),
+              date: spainDateStr(event.date),
               phase: 'knockout',
               roundLabel: ROUND_LABELS[slug] || 'Eliminatoria',
               group: 'KO', kickoffUTC: event.date
@@ -434,7 +446,7 @@ async function autoSyncFromESPN() {
 }
 
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
-const NUM_PLAYERS = 19;
+const NUM_PLAYERS = 17;
 function defaultState() {
   return {
     players: Array.from({length:NUM_PLAYERS},(_,i)=>`Jugador ${i+1}`),
@@ -503,8 +515,8 @@ function updateConnDot() {
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const TODAY = new Date().toISOString().slice(0,10);
-const TOMORROW = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+const TODAY = spainDateStr(new Date());
+const TOMORROW = spainDateStr(new Date(Date.now() + 86400000));
 
 // Datos curiosos / históricos cara a cara (curados a mano, se irán ampliando)
 const MATCH_FACTS = {
@@ -624,7 +636,7 @@ function render() {
 // ─── HEADER ───────────────────────────────────────────────────────────────────
 function renderHeader() {
   return `<header>
-    <div><h1>⚽ Porra Mundial 2026</h1><p>🏆 380€ para el ganador · 19 jugadores · 20€/persona</p></div>
+    <div><h1>⚽ Porra Mundial 2026</h1><p>🏆 340€ para el ganador · 17 jugadores · 20€/persona</p></div>
     <div id="conn-dot" class="conn-dot${connected?'':' off'}" title="${connected?'Conectado':'Sin conexión'}"></div>
   </header>`;
 }
@@ -676,7 +688,7 @@ function renderInitialJoin() {
       </div>
     </div>
     <div class="card" style="font-size:.84rem;color:var(--muted);line-height:1.6">
-      <strong style="color:var(--text)">🏆 Premio:</strong> Cada jugador pone 20€ (19 × 20€ = 380€) → el ganador se lleva el bote completo<br>
+      <strong style="color:var(--text)">🏆 Premio:</strong> Cada jugador pone 20€ (17 × 20€ = 340€) → el ganador se lleva el bote completo<br>
       <strong style="color:var(--text)">⭐ Tip:</strong> Elige el ganador (obligatorio) y añade el marcador exacto para sumar puntos extra si aciertas.<br>
       <strong style="color:var(--text)">👥 Cómo se unen los demás:</strong> Pulsando sobre un "Jugador N" libre (➕) en la barra superior, ponen su nombre y contraseña, y queda asignado para siempre.
     </div>
@@ -956,7 +968,7 @@ function renderClasificacion() {
   });
   const total = Object.keys(S.results||{}).length;
   return `
-    <div class="prize-banner"><div class="amount">🏆 380€</div><p>Cada jugador pone 20€ · El ganador se lleva el bote completo (380€)</p></div>
+    <div class="prize-banner"><div class="amount">🏆 340€</div><p>Cada jugador pone 20€ · El ganador se lleva el bote completo (340€)</p></div>
     <div class="card">
       <table class="lb-table">
         <thead><tr><th>#</th><th>Jugador</th><th>Aciertos</th><th>Puntos</th></tr></thead>
@@ -992,6 +1004,11 @@ function renderAdmin() {
       <div class="card-title">⚙️ Configuración</div>
       <button class="btn btn-orange" onclick="editNames()">✏️ Editar nombres</button>
       <button class="btn btn-red" style="margin-left:8px" onclick="resetAll()">🗑️ Resetear todo</button>
+    </div>
+    <div class="card">
+      <div class="card-title">🛠️ Corregir apuesta de un jugador</div>
+      <p style="color:var(--muted);font-size:.82rem;margin-bottom:10px">Si alguien marcó mal su apuesta (ganador o resultado exacto) y el partido ya está cerrado, corrígela aquí.</p>
+      <button class="btn btn-orange" onclick="openAdminPredModal()">✏️ Corregir apuesta</button>
     </div>`;
 }
 
@@ -1031,7 +1048,7 @@ function renderReglas() {
     <p style="font-size:.88rem;line-height:1.6">⚠️ Las apuestas se cierran el día del partido. Puedes ver las apuestas de los demás una vez cerrado.</p>
     <hr class="divider">
     <h4 style="margin-bottom:8px">🏆 Premio</h4>
-    <p style="font-size:.88rem;line-height:1.6">El jugador con más puntos al final gana <strong>380€</strong> (19 jugadores × 20€, bote completo). Final: <strong>19 julio 2026</strong>, MetLife Stadium.</p>
+    <p style="font-size:.88rem;line-height:1.6">El jugador con más puntos al final gana <strong>340€</strong> (17 jugadores × 20€, bote completo). Final: <strong>19 julio 2026</strong>, MetLife Stadium.</p>
     <hr class="divider">
     <p style="font-size:.77rem;color:var(--muted);text-align:center">Grupos: 11–27 jun · R32: 28 jun–3 jul · Octavos: 4–7 jul · Cuartos: 9–11 jul · Semis: 14–15 jul · Final: 19 jul</p>
   </div>`;
@@ -1089,6 +1106,96 @@ function closeModal() {
   const root = document.getElementById('modal-root');
   if (root) root.innerHTML = '';
 }
+
+// ─── MODAL ADMIN: CORREGIR APUESTA DE UN JUGADOR ──────────────────────────────
+let apPick = null;
+function openAdminPredModal() {
+  const matches = [...GROUP_MATCHES, ...objToArr(S.knockoutMatches)]
+    .sort((a,b) => new Date(getKickoffUTC(a.id)||a.date) - new Date(getKickoffUTC(b.id)||b.date));
+  const matchOpts = matches.map(m => `<option value="${m.id}">${m.home} vs ${m.away} · ${fmtDate(m.date)}${m.md?' (J'+m.md+')':m.roundLabel?' ('+m.roundLabel+')':''}</option>`).join('');
+  const playerOpts = S.players.map((name,i) => `<option value="${i}">${name}</option>`).join('');
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box">
+        <h3>🛠️ Corregir apuesta</h3>
+        <p>Elige jugador y partido, revisa lo que tiene guardado y corrígelo si está mal.</p>
+        <label>Jugador</label>
+        <select id="apJugador" onchange="loadAdminPred()">${playerOpts}</select>
+        <label>Partido</label>
+        <select id="apPartido" onchange="loadAdminPred()">${matchOpts}</select>
+        <div id="apActual" style="font-size:.82rem;color:var(--muted);margin-bottom:10px"></div>
+        <label>Ganador</label>
+        <div class="pick-row" id="apPickRow">
+          <button class="pick-btn" id="apPickhome" onclick="apSetPick('home')"></button>
+          <button class="pick-btn" id="apPickdraw" onclick="apSetPick('draw')">Empate</button>
+          <button class="pick-btn" id="apPickaway" onclick="apSetPick('away')"></button>
+        </div>
+        <label style="margin-top:10px">Marcador exacto (opcional)</label>
+        <div class="score-row">
+          <input class="score-in" type="number" min="0" max="20" id="apScoreHome" placeholder="?"/>
+          <span class="score-dash">–</span>
+          <input class="score-in" type="number" min="0" max="20" id="apScoreAway" placeholder="?"/>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" onclick="closeModal()">Cancelar</button>
+          <button class="btn btn-green" onclick="saveAdminPred()">Guardar</button>
+        </div>
+      </div>
+    </div>`;
+  loadAdminPred();
+}
+function apSetPick(p) {
+  apPick = p;
+  ['home','draw','away'].forEach(k => document.getElementById('apPick'+k)?.classList.toggle('sel', k===p));
+}
+function loadAdminPred() {
+  const pi = document.getElementById('apJugador')?.value;
+  const mid = document.getElementById('apPartido')?.value;
+  if (pi==null || !mid) return;
+  const m = [...GROUP_MATCHES, ...objToArr(S.knockoutMatches)].find(x=>x.id===mid);
+  if (!m) return;
+  document.getElementById('apPickhome').textContent = m.home;
+  document.getElementById('apPickaway').textContent = m.away;
+  const pred = getPred(mid, pi);
+  apPick = pred?.pick || null;
+  apSetPick(apPick);
+  document.getElementById('apScoreHome').value = pred?.scoreHome ?? '';
+  document.getElementById('apScoreAway').value = pred?.scoreAway ?? '';
+  const result = getResult(mid);
+  const pickLabel = p => p==='home'?m.home:p==='away'?m.away:p==='draw'?'Empate':null;
+  let info = pred ? `Apuesta guardada: <b>${pickLabel(pred.pick)||'sin ganador'}</b>` : 'Sin apuesta guardada';
+  if (pred && pred.scoreHome != null && pred.scoreAway != null) info += ` (${pred.scoreHome}–${pred.scoreAway})`;
+  if (result) info += ` · Resultado real: <b>${result.home}–${result.away}</b>`;
+  document.getElementById('apActual').innerHTML = info;
+}
+function saveAdminPred() {
+  const pi = document.getElementById('apJugador')?.value;
+  const mid = document.getElementById('apPartido')?.value;
+  if (pi==null || !mid) return;
+  if (!apPick) { toast('Elige ganador o empate'); return; }
+  const sh = document.getElementById('apScoreHome')?.value;
+  const sa = document.getElementById('apScoreAway')?.value;
+  const pred = { pick: apPick };
+  let fixedWinner = false;
+  if (sh !== '' && sa !== '' && sh != null && sa != null) {
+    pred.scoreHome = parseInt(sh, 10);
+    pred.scoreAway = parseInt(sa, 10);
+    // El marcador exacto debe ser coherente con el ganador elegido:
+    // si no coinciden, ajustamos el ganador para que coincida con el marcador.
+    const impliedWinner = winner(pred.scoreHome, pred.scoreAway);
+    if (pred.pick !== impliedWinner) {
+      pred.pick = impliedWinner;
+      fixedWinner = true;
+    }
+  } else {
+    pred.scoreHome = null;
+    pred.scoreAway = null;
+  }
+  savePath(`predictions/${mid}/${pi}`, pred);
+  closeModal();
+  toast(fixedWinner ? 'Apuesta corregida ✓ (ganador ajustado para coincidir con el marcador)' : 'Apuesta corregida ✓');
+}
 function submitClaim(i) {
   const name = document.getElementById('claimName')?.value.trim();
   if (!name) { toast('Escribe tu nombre'); return; }
@@ -1110,16 +1217,41 @@ function setFilter(f) { curFilter=f; render(); }
 
 function setPick(mid, pick) {
   const cur = getPred(mid, curPlayer) || {};
-  savePath(`predictions/${mid}/${curPlayer}`, {...cur, pick});
+  const updated = {...cur, pick};
+  // Si había un marcador exacto guardado que apunta a otro ganador, lo borramos:
+  // no tiene sentido elegir "gana Brasil" y mantener un resultado a favor de Marruecos.
+  const hadScore = cur.scoreHome !== null && cur.scoreHome !== undefined &&
+                   cur.scoreAway !== null && cur.scoreAway !== undefined;
+  if (hadScore && winner(cur.scoreHome, cur.scoreAway) !== pick) {
+    updated.scoreHome = null;
+    updated.scoreAway = null;
+    savePath(`predictions/${mid}/${curPlayer}`, updated);
+    toast('Apuesta guardada ✓ (se borró el marcador exacto: no coincidía con el nuevo ganador)');
+    return;
+  }
+  savePath(`predictions/${mid}/${curPlayer}`, updated);
   toast('Apuesta guardada ✓');
 }
 function setScore(mid, side, val) {
   const cur = getPred(mid, curPlayer) || {};
   const n = val === '' || val === null ? null : parseInt(val, 10);
   const updated = {...cur, [side==='home'?'scoreHome':'scoreAway']: n};
-  savePath(`predictions/${mid}/${curPlayer}`, updated);
   if (updated.scoreHome !== null && updated.scoreHome !== undefined &&
-      updated.scoreAway !== null && updated.scoreAway !== undefined) toast('Resultado exacto guardado ⭐');
+      updated.scoreAway !== null && updated.scoreAway !== undefined) {
+    // El marcador exacto debe ser coherente con el ganador elegido: si el
+    // marcador implica otro ganador, actualizamos el ganador para que coincida.
+    const impliedWinner = winner(updated.scoreHome, updated.scoreAway);
+    if (updated.pick !== impliedWinner) {
+      updated.pick = impliedWinner;
+      savePath(`predictions/${mid}/${curPlayer}`, updated);
+      toast('Resultado exacto guardado ⭐ (ganador actualizado para coincidir)');
+      return;
+    }
+    savePath(`predictions/${mid}/${curPlayer}`, updated);
+    toast('Resultado exacto guardado ⭐');
+    return;
+  }
+  savePath(`predictions/${mid}/${curPlayer}`, updated);
 }
 function saveResult(mid) {
   const h=document.getElementById(`rh_${mid}`)?.value, a=document.getElementById(`ra_${mid}`)?.value;
