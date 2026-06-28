@@ -385,7 +385,10 @@ async function autoSyncFromESPN() {
   autoSyncRunning = true;
   try {
     const today = new Date();
-    for (let delta = 0; delta <= 2; delta++) {
+    // Scan: 3 días hacia atrás (resultados recientes) + 18 días hacia delante
+    // (fixtures de eliminatorias ya definidos pero no jugados aún).
+    // delta negativo = futuro, delta positivo = pasado.
+    for (let delta = -18; delta <= 3; delta++) {
       const d = new Date(today.getTime() - delta * 86400000);
       const dateStr = d.toISOString().slice(0,10).replace(/-/g,'');
       let data;
@@ -397,34 +400,35 @@ async function autoSyncFromESPN() {
       for (const event of (data.events || [])) {
         const comp = event.competitions?.[0];
         if (!comp) continue;
-        if (!comp.status?.type?.completed) continue;
 
         const homeC = comp.competitors?.find(c => c.homeAway === 'home');
         const awayC = comp.competitors?.find(c => c.homeAway === 'away');
         if (!homeC || !awayC) continue;
 
-        const homeScore = parseInt(homeC.score, 10);
-        const awayScore = parseInt(awayC.score, 10);
-        if (isNaN(homeScore) || isNaN(awayScore)) continue;
-
         const slug = event.season?.slug || '';
+        const completed = !!comp.status?.type?.completed;
 
         if (slug === 'group-stage') {
-          // Match by UTC kickoff timestamp (parsed, not string-compared)
+          // Grupos: solo importan los resultados (partidos completados)
+          if (!completed) continue;
+          const homeScore = parseInt(homeC.score, 10);
+          const awayScore = parseInt(awayC.score, 10);
+          if (isNaN(homeScore) || isNaN(awayScore)) continue;
           const matchId = KICKOFFS_REV[new Date(event.date).getTime()];
           if (matchId && !(S.results && S.results[matchId])) {
             savePath(`results/${matchId}`, { home: homeScore, away: awayScore });
             console.log(`[AutoSync] ${matchId}: ${homeScore}-${awayScore}`);
           }
         } else if (slug && slug !== 'group-stage') {
-          // Knockout match
+          // Eliminatorias: añadir el fixture AUNQUE no haya terminado,
+          // para que aparezca en la quiniela antes de jugarse.
+          const hn = homeC.team?.displayName || '';
+          const an = awayC.team?.displayName || '';
+          if (!hn || !an) continue; // equipos TBD, aún no determinados
+          const hd = TEAM_NAMES[hn] || hn;
+          const ad = TEAM_NAMES[an] || an;
           const koId = `espn_${event.id}`;
-          // Add match entry if new
           if (!(S.knockoutMatches && S.knockoutMatches[koId])) {
-            const hn = homeC.team?.displayName || '';
-            const an = awayC.team?.displayName || '';
-            const hd = TEAM_NAMES[hn] || hn;
-            const ad = TEAM_NAMES[an] || an;
             savePath(`knockoutMatches/${koId}`, {
               id: koId, home: hd, away: ad,
               date: spainDateStr(event.date),
@@ -433,14 +437,18 @@ async function autoSyncFromESPN() {
               group: 'KO', kickoffUTC: event.date
             });
           }
-          // Save result if not yet stored
-          if (!(S.results && S.results[koId])) {
-            savePath(`results/${koId}`, { home: homeScore, away: awayScore });
-            console.log(`[AutoSync KO] ${koId}: ${homeScore}-${awayScore}`);
+          // Guardar resultado solo si el partido ha terminado
+          if (completed) {
+            const homeScore = parseInt(homeC.score, 10);
+            const awayScore = parseInt(awayC.score, 10);
+            if (!isNaN(homeScore) && !isNaN(awayScore) && !(S.results && S.results[koId])) {
+              savePath(`results/${koId}`, { home: homeScore, away: awayScore });
+              console.log(`[AutoSync KO] ${koId}: ${homeScore}-${awayScore}`);
+            }
           }
-        }
-      }
-    }
+        } // else if (slug !== 'group-stage')
+      } // for (event of data.events)
+    } // for (delta)
   } catch(e) { console.log('[AutoSync] error:', e); }
   autoSyncRunning = false;
 }
