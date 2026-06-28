@@ -557,7 +557,7 @@ function fmtForm(f) {
 function searchQuery(name) {
   return encodeURIComponent(name.replace(/^[^\p{L}]+/u, '').trim());
 }
-function getKickoffUTC(matchId) { return KICKOFFS[matchId] || null; }
+function getKickoffUTC(matchId) { return KICKOFFS[matchId] || (S.knockoutMatches?.[matchId]?.kickoffUTC) || null; }
 function isLocked(m) {
   const ko = getKickoffUTC(m.id);
   if (ko) return new Date() >= new Date(ko);
